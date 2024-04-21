@@ -23,6 +23,7 @@ src_install() {
 
 	git checkout tags/v1.3.1
 
+	npm install -g npx
 	npm install
 	npm run package-linux
 
