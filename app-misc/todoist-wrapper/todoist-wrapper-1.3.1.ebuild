@@ -20,5 +20,11 @@ src_install() {
 	dodir /opt/todoist-wrapper
 
 	unpack todoist-wrapper-linux-x64.zip
-	dobin "${S}/todoist-wrapper"
+
+    dodir /opt/todoist-wrapper
+    cp -r "${S}"/* "${D}/opt/todoist-wrapper/" || die "Failed to copy files."
+
+    fperms +x /opt/todoist-wrapper/todoist-wrapper
+
+    dosym /opt/todoist-wrapper/todoist-wrapper /usr/bin/todoist-wrapper
 }
