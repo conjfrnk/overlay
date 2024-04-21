@@ -20,5 +20,5 @@ src_install() {
 	dodir /opt/todoist-wrapper
 
 	unpack todoist-wrapper-linux-x64.zip
-	dobin "${WORKDIR}/todoist-wrapper"
+	dobin "${S}/todoist-wrapper"
 }
