@@ -20,7 +20,7 @@ src_install() {
 	dodir /opt/todoist-wrapper
 
 	unpack todoist-wrapper-linux-x64.zip
-	mv "${WORKDIR}" "${D}/opt/todoist-wrapper/"
+	cp -r "${WORKDIR}" "${D}/opt/todoist-wrapper/"
 
 	fperms +x /opt/todoist-wrapper/todoist-wrapper
 
