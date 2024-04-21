@@ -23,9 +23,8 @@ src_install() {
 
 	git checkout tags/v1.3.1
 
-	npm install -g npx
 	npm install
-	npm run package-linux
+	npm run "$(npm bin)/electron-packager" . --overwrite --platform=linux --arch=x64 --out=bin
 
 	dobin bin/todoist-wrapper-linux-x64
 }
