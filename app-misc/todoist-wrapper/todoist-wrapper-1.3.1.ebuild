@@ -5,23 +5,26 @@ EAPI=8
 
 DESCRIPTION="Electron Wrapper for Todoist"
 HOMEPAGE="https://github.com/conjfrnk/todoist-wrapper"
-SRC_URI="https://github.com/conjfrnk/todoist-wrapper.git"
+SRC_URI="https://github.com/conjfrnk/todoist-wrapper/archive/refs/tags/v1.3.1.tar.gz"
 
 LICENSE="GPL-3"
 SLOT="0"
 KEYWORDS="~amd64"
 
 DEPEND="
-	dev-lang/nodejs
-	sys-devel/git
+	net-libs/nodejs
+	dev-vcs/git
 "
 
 src_install() {
-	git_clone
+	default
 
 	cd "${S}"
 
+	git checkout tags/v1.3.1
+
 	npm install
 	npm run package-linux
-	npm install -g .
+
+	dobin bin/todoist-wrapper-linux-x64
 }
