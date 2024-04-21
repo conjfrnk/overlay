@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE pkgmetadata SYSTEM "https://www.gentoo.org/dtd/metadata.dtd">
+<pkgmetadata>
+	<maintainer type="person">
+		<email>conjfrnk@gmail.com</email>
+		<name>Connor Frank</name>
+	</maintainer>
+	<longdescription lang="en">
+		Connor Frank's Portage Overlay
+	</longdescription>
+</pkgmetadata>
