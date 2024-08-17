@@ -5,7 +5,7 @@ EAPI=8
 
 DESCRIPTION="Electron Wrapper for Todoist"
 HOMEPAGE="https://github.com/conjfrnk/todoist-wrapper"
-SRC_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v2.4.3/todoist-wrapper-linux-x64.zip"
+SRC_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v2.4.3a/todoist-wrapper-linux-x64.zip"
 
 LICENSE="GPL-3"
 SLOT="0"
