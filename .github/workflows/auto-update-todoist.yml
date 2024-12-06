@@ -1,0 +1,138 @@
+name: Auto Update Overlay for Todoist Wrapper
+
+on:
+  schedule:
+    - cron: '5 0 * * *'  # Runs every day at 00:05 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-overlay:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Overlay Repo
+        uses: actions/checkout@v2
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq coreutils curl
+
+      - name: Get last processed commit
+        id: get_last
+        run: |
+          if [ -f ".last_processed_sha" ]; then
+            LAST_SHA=$(cat .last_processed_sha)
+          else
+            LAST_SHA=""
+          fi
+          echo "LAST_SHA=$LAST_SHA" >> $GITHUB_ENV
+
+      - name: Check for new commits in todoist-wrapper
+        id: check_commits
+        run: |
+          # Get the latest commit SHA from main branch of todoist-wrapper
+          LATEST_SHA=$(curl -s https://api.github.com/repos/conjfrnk/todoist-wrapper/commits/main | jq -r .sha)
+          echo "LATEST_SHA=$LATEST_SHA" >> $GITHUB_ENV
+
+          # If no new commits since last processed and not a manual run, skip
+          if [ "$LATEST_SHA" = "$LAST_SHA" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "No new commits since last time."
+            echo "should_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "New commit or manual run triggered."
+            echo "should_update=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Exit if no update needed
+        if: steps.check_commits.outputs.should_update == 'false'
+        run: exit 0
+
+      - name: Fetch version from todoist-wrapper package.json
+        id: get_version
+        run: |
+          curl -sL https://raw.githubusercontent.com/conjfrnk/todoist-wrapper/main/package.json -o package.json
+          VERSION=$(jq -r .version package.json)
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+      - name: Create new ebuild
+        id: create_ebuild
+        run: |
+          OVERLAY_DIR="app-misc/todoist-wrapper"
+          VERSION=$VERSION
+
+          TEMPLATE=$(ls $OVERLAY_DIR/todoist-wrapper-*.ebuild | sort -V | tail -n1)
+          NEW_EBUILD="$OVERLAY_DIR/todoist-wrapper-${VERSION}.ebuild"
+
+          # Check if the new ebuild would be the same as the template (no actual new version)
+          if [ "$OVERLAY_DIR/$(basename $TEMPLATE)" = "$NEW_EBUILD" ]; then
+            echo "No new version detected (template and new ebuild name match)."
+            echo "no_new_version=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          cp "$TEMPLATE" "$NEW_EBUILD"
+          # Update the SRC_URI in the new ebuild to point to the new version
+          sed -i "s|\(SRC_URI=.*v\)[^/]*|\1${VERSION}|" "$NEW_EBUILD"
+
+      - name: Exit if no new version
+        if: steps.create_ebuild.outputs.no_new_version == 'true'
+        run: exit 0
+
+      - name: Download Distfile
+        id: distfile
+        run: |
+          VERSION=$VERSION
+          DIST_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v${VERSION}/todoist-wrapper-linux-x64.zip"
+          curl -LO "$DIST_URI"
+
+      - name: Calculate Checksums and Update Manifest
+        id: manifest
+        run: |
+          VERSION=$VERSION
+          OVERLAY_DIR="app-misc/todoist-wrapper"
+          EBUILD_FILE="todoist-wrapper-${VERSION}.ebuild"
+          DISTFILE="todoist-wrapper-linux-x64.zip"
+
+          EBUILD_SIZE=$(stat -c %s "$OVERLAY_DIR/$EBUILD_FILE")
+          B2_EBUILD=$(b2sum "$OVERLAY_DIR/$EBUILD_FILE" | awk '{print $1}')
+          SHA512_EBUILD=$(sha512sum "$OVERLAY_DIR/$EBUILD_FILE" | awk '{print $1}')
+
+          DIST_SIZE=$(stat -c %s "$DISTFILE")
+          B2_DIST=$(b2sum "$DISTFILE" | awk '{print $1}')
+          SHA512_DIST=$(sha512sum "$DISTFILE" | awk '{print $1}')
+
+          # Remove old entries for this version if any
+          sed -i "/ $EBUILD_FILE /d" "$OVERLAY_DIR/Manifest"
+          sed -i "/ $DISTFILE /d" "$OVERLAY_DIR/Manifest"
+
+          echo "EBUILD $EBUILD_FILE $EBUILD_SIZE BLAKE2B $B2_EBUILD SHA512 $SHA512_EBUILD" >> "$OVERLAY_DIR/Manifest"
+          echo "DIST $DISTFILE $DIST_SIZE BLAKE2B $B2_DIST SHA512 $SHA512_DIST" >> "$OVERLAY_DIR/Manifest"
+
+      - name: Test the new Ebuild
+        run: |
+          VERSION=$VERSION
+          if [ ! -f "app-misc/todoist-wrapper/todoist-wrapper-${VERSION}.ebuild" ]; then
+            echo "Ebuild not found!"
+            exit 1
+          fi
+          if ! grep -q "todoist-wrapper-${VERSION}.ebuild" app-misc/todoist-wrapper/Manifest; then
+            echo "Manifest not updated!"
+            exit 1
+          fi
+          echo "Tests passed. Everything looks good."
+
+      - name: Commit and Push Changes
+        run: |
+          VERSION=$VERSION
+          LATEST_SHA=$LATEST_SHA
+          echo "$LATEST_SHA" > .last_processed_sha
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app-misc/todoist-wrapper/Manifest app-misc/todoist-wrapper/todoist-wrapper-${VERSION}.ebuild .last_processed_sha || true
+          # If nothing changed, the commit will fail silently
+          git commit -m "$VERSION" || echo "No changes to commit."
+          git push origin HEAD:main || echo "No changes pushed."
+
