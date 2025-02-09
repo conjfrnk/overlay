@@ -18,7 +18,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq coreutils curl
+          sudo apt-get install -y jq coreutils curl b2sum
 
       - name: Get last processed commit
         id: get_last
@@ -82,34 +82,52 @@ jobs:
         run: exit 0
 
       - name: Download Distfile
-        id: distfile
+        id: download_distfile
         run: |
           VERSION=$VERSION
           DIST_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v${VERSION}/todoist-wrapper-linux-x64.zip"
           curl -LO "$DIST_URI"
+          if [ ! -f "todoist-wrapper-linux-x64.zip" ]; then
+            echo "Failed to download distfile!"
+            exit 1
+          fi
 
       - name: Calculate Checksums and Update Manifest
         id: manifest
         run: |
-          VERSION=$VERSION
+          set -e
           OVERLAY_DIR="app-misc/todoist-wrapper"
           EBUILD_FILE="todoist-wrapper-${VERSION}.ebuild"
           DISTFILE="todoist-wrapper-linux-x64.zip"
 
+          # Compute checksums and file sizes
           EBUILD_SIZE=$(stat -c %s "$OVERLAY_DIR/$EBUILD_FILE")
           B2_EBUILD=$(b2sum "$OVERLAY_DIR/$EBUILD_FILE" | awk '{print $1}')
           SHA512_EBUILD=$(sha512sum "$OVERLAY_DIR/$EBUILD_FILE" | awk '{print $1}')
 
           DIST_SIZE=$(stat -c %s "$DISTFILE")
+          # Ensure the downloaded file is of a reasonable size (e.g. >10MB)
+          if [ "$DIST_SIZE" -lt 10000000 ]; then
+            echo "Downloaded file size ($DIST_SIZE bytes) is suspiciously small!"
+            exit 1
+          fi
           B2_DIST=$(b2sum "$DISTFILE" | awk '{print $1}')
           SHA512_DIST=$(sha512sum "$DISTFILE" | awk '{print $1}')
 
-          # Remove old entries for this version if any
-          sed -i "/ $EBUILD_FILE /d" "$OVERLAY_DIR/Manifest"
-          sed -i "/ $DISTFILE /d" "$OVERLAY_DIR/Manifest"
+          echo "Calculated DISTFILE size: $DIST_SIZE bytes"
 
+          # Remove any old manifest entries for this version
+          sed -i "/^EBUILD $EBUILD_FILE /d" "$OVERLAY_DIR/Manifest"
+          sed -i "/^DIST $DISTFILE /d" "$OVERLAY_DIR/Manifest"
+
+          # Append new manifest entries
           echo "EBUILD $EBUILD_FILE $EBUILD_SIZE BLAKE2B $B2_EBUILD SHA512 $SHA512_EBUILD" >> "$OVERLAY_DIR/Manifest"
           echo "DIST $DISTFILE $DIST_SIZE BLAKE2B $B2_DIST SHA512 $SHA512_DIST" >> "$OVERLAY_DIR/Manifest"
+
+      - name: Debug: Show updated Manifest
+        run: |
+          echo "Updated Manifest contents:"
+          cat app-misc/todoist-wrapper/Manifest
 
       - name: Test the new Ebuild
         run: |
@@ -135,4 +153,3 @@ jobs:
           # If nothing changed, the commit will fail silently
           git commit -m "$VERSION" || echo "No changes to commit."
           git push origin HEAD:main || echo "No changes pushed."
-
