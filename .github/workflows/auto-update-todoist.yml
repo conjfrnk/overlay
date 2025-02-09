@@ -124,7 +124,7 @@ jobs:
           echo "EBUILD $EBUILD_FILE $EBUILD_SIZE BLAKE2B $B2_EBUILD SHA512 $SHA512_EBUILD" >> "$OVERLAY_DIR/Manifest"
           echo "DIST $DISTFILE $DIST_SIZE BLAKE2B $B2_DIST SHA512 $SHA512_DIST" >> "$OVERLAY_DIR/Manifest"
 
-      - name: Debug: Show updated Manifest
+      - name: Debug - Show updated Manifest
         run: |
           echo "Updated Manifest contents:"
           cat app-misc/todoist-wrapper/Manifest
