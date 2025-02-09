@@ -18,7 +18,7 @@ jobs:
       - name: Install tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq coreutils curl b2sum
+          sudo apt-get install -y jq coreutils curl
 
       - name: Get last processed commit
         id: get_last
