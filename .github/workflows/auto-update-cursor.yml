@@ -79,7 +79,7 @@ jobs:
           NEW_EBUILD="$OVERLAY_DIR/cursor-${VERSION}.ebuild"
           
           # Create the ebuild file
-          cat > "$NEW_EBUILD" << 'EOF'
+          cat > "$NEW_EBUILD" <<-'EOF'
 # Copyright 2024 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
