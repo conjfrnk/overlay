@@ -1,0 +1,209 @@
+name: Auto Update Overlay for Cursor
+
+on:
+  schedule:
+    - cron: '20 6 * * *'  # Runs every day at 6:20 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-overlay:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Overlay Repo
+        uses: actions/checkout@v2
+
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq coreutils curl
+
+      - name: Get current version from existing ebuild
+        id: get_current
+        run: |
+          OVERLAY_DIR="app-editors/cursor"
+          # Get the latest ebuild version
+          if ls $OVERLAY_DIR/cursor-*.ebuild 2>/dev/null; then
+            CURRENT_VERSION=$(ls $OVERLAY_DIR/cursor-*.ebuild | sed 's/.*cursor-\(.*\)\.ebuild/\1/' | sort -V | tail -n1)
+          else
+            CURRENT_VERSION="0.0"
+          fi
+          echo "CURRENT_VERSION=$CURRENT_VERSION" >> $GITHUB_ENV
+
+      - name: Check for new Cursor version
+        id: check_version
+        run: |
+          # Follow the redirect to get the actual download URL and version
+          DOWNLOAD_URL=$(curl -sI "https://api2.cursor.sh/updates/download/golden/linux-x64/cursor/2.0" | grep -i location | cut -d' ' -f2 | tr -d '\r')
+          
+          if [ -z "$DOWNLOAD_URL" ]; then
+            echo "Failed to get download URL"
+            exit 1
+          fi
+          
+          # Extract version from the download URL (e.g., Cursor-2.0.77-x86_64.AppImage)
+          NEW_VERSION=$(echo "$DOWNLOAD_URL" | sed -n 's/.*Cursor-\([0-9.]*\)-x86_64\.AppImage.*/\1/p')
+          
+          if [ -z "$NEW_VERSION" ]; then
+            echo "Failed to extract version from URL: $DOWNLOAD_URL"
+            exit 1
+          fi
+          
+          echo "NEW_VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          echo "DOWNLOAD_URL=$DOWNLOAD_URL" >> $GITHUB_ENV
+          
+          # Check if this is a new version
+          if [ "$NEW_VERSION" = "$CURRENT_VERSION" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "No new version (current: $CURRENT_VERSION, new: $NEW_VERSION)"
+            echo "should_update=false" >> $GITHUB_OUTPUT
+          else
+            echo "New version found: $NEW_VERSION (current: $CURRENT_VERSION)"
+            echo "should_update=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Exit if no update needed
+        if: steps.check_version.outputs.should_update == 'false'
+        run: exit 0
+
+      - name: Create new ebuild
+        id: create_ebuild
+        run: |
+          OVERLAY_DIR="app-editors/cursor"
+          VERSION=$NEW_VERSION
+          
+          # Create directory if it doesn't exist
+          mkdir -p $OVERLAY_DIR
+          
+          NEW_EBUILD="$OVERLAY_DIR/cursor-${VERSION}.ebuild"
+          
+          # Create the ebuild file
+          cat > "$NEW_EBUILD" << 'EOF'
+# Copyright 2024 Gentoo Authors
+# Distributed under the terms of the GNU General Public License v2
+
+EAPI=8
+
+DESCRIPTION="The AI Code Editor - Cursor AppImage"
+HOMEPAGE="https://cursor.sh"
+SRC_URI="https://api2.cursor.sh/updates/download/golden/linux-x64/cursor/2.0 -> cursor-${PV}.AppImage"
+
+LICENSE="proprietary"
+SLOT="0"
+KEYWORDS="~amd64"
+RESTRICT="strip"
+
+DEPEND="
+	sys-fs/fuse:0
+"
+
+RDEPEND="${DEPEND}"
+
+S="${WORKDIR}"
+
+src_unpack() {
+	cp "${DISTDIR}/cursor-${PV}.AppImage" "${S}/cursor.AppImage" || die
+}
+
+src_install() {
+	dodir /opt/cursor
+	
+	cp "${S}/cursor.AppImage" "${D}/opt/cursor/" || die "Failed to copy AppImage"
+	
+	fperms +x /opt/cursor/cursor.AppImage
+	
+	dosym /opt/cursor/cursor.AppImage /usr/bin/cursor
+	
+	# Create desktop entry
+	dodir /usr/share/applications
+	cat > "${D}/usr/share/applications/cursor.desktop" <<-DESKTOP
+	[Desktop Entry]
+	Name=Cursor
+	Comment=The AI Code Editor
+	Exec=/opt/cursor/cursor.AppImage --no-sandbox %F
+	Icon=cursor
+	Type=Application
+	Categories=Development;IDE;TextEditor;
+	MimeType=text/plain;
+	StartupNotify=true
+	DESKTOP
+}
+EOF
+
+      - name: Download Distfile
+        id: download_distfile
+        run: |
+          VERSION=$NEW_VERSION
+          # Download using the actual URL we found
+          curl -L "$DOWNLOAD_URL" -o "cursor-${VERSION}.AppImage"
+          if [ ! -f "cursor-${VERSION}.AppImage" ]; then
+            echo "Failed to download distfile!"
+            exit 1
+          fi
+
+      - name: Calculate Checksums and Update Manifest
+        id: manifest
+        run: |
+          set -e
+          OVERLAY_DIR="app-editors/cursor"
+          VERSION=$NEW_VERSION
+          EBUILD_FILE="cursor-${VERSION}.ebuild"
+          DISTFILE="cursor-${VERSION}.AppImage"
+          
+          # Compute checksums and file sizes
+          EBUILD_SIZE=$(stat -c %s "$OVERLAY_DIR/$EBUILD_FILE")
+          B2_EBUILD=$(b2sum "$OVERLAY_DIR/$EBUILD_FILE" | awk '{print $1}')
+          SHA512_EBUILD=$(sha512sum "$OVERLAY_DIR/$EBUILD_FILE" | awk '{print $1}')
+          
+          DIST_SIZE=$(stat -c %s "$DISTFILE")
+          # Ensure the downloaded file is of a reasonable size (e.g. >100MB for Cursor)
+          if [ "$DIST_SIZE" -lt 100000000 ]; then
+            echo "Downloaded file size ($DIST_SIZE bytes) is suspiciously small!"
+            exit 1
+          fi
+          B2_DIST=$(b2sum "$DISTFILE" | awk '{print $1}')
+          SHA512_DIST=$(sha512sum "$DISTFILE" | awk '{print $1}')
+          
+          echo "Calculated DISTFILE size: $DIST_SIZE bytes"
+          
+          # Create or update Manifest
+          if [ -f "$OVERLAY_DIR/Manifest" ]; then
+            # Remove any old manifest entries for this version
+            sed -i "/^EBUILD $EBUILD_FILE /d" "$OVERLAY_DIR/Manifest"
+            sed -i "/^DIST $DISTFILE /d" "$OVERLAY_DIR/Manifest"
+          else
+            touch "$OVERLAY_DIR/Manifest"
+          fi
+          
+          # Append new manifest entries
+          echo "EBUILD $EBUILD_FILE $EBUILD_SIZE BLAKE2B $B2_EBUILD SHA512 $SHA512_EBUILD" >> "$OVERLAY_DIR/Manifest"
+          echo "DIST $DISTFILE $DIST_SIZE BLAKE2B $B2_DIST SHA512 $SHA512_DIST" >> "$OVERLAY_DIR/Manifest"
+
+      - name: Debug - Show updated Manifest
+        run: |
+          echo "Updated Manifest contents:"
+          cat app-editors/cursor/Manifest
+
+      - name: Test the new Ebuild
+        run: |
+          VERSION=$NEW_VERSION
+          if [ ! -f "app-editors/cursor/cursor-${VERSION}.ebuild" ]; then
+            echo "Ebuild not found!"
+            exit 1
+          fi
+          if ! grep -q "cursor-${VERSION}.ebuild" app-editors/cursor/Manifest; then
+            echo "Manifest not updated!"
+            exit 1
+          fi
+          echo "Tests passed. Everything looks good."
+
+      - name: Commit and Push Changes
+        run: |
+          VERSION=$NEW_VERSION
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app-editors/cursor/Manifest app-editors/cursor/cursor-${VERSION}.ebuild || true
+          # If nothing changed, the commit will fail silently
+          git commit -m "${VERSION}" || echo "No changes to commit."
+          git push origin HEAD:main || echo "No changes pushed."
