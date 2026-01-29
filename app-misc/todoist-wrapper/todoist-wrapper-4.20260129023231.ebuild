@@ -10,7 +10,7 @@ SRC_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v4.202601
 LICENSE="GPL-3"
 SLOT="0"
 KEYWORDS="~amd64"
-S="${WORKDIR}/bin/todoist-wrapper-linux-x64"
+S="${WORKDIR}/dist/todoist-wrapper-linux-x64"
 
 DEPEND="
 	app-arch/unzip
