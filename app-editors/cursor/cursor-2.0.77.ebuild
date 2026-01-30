@@ -5,7 +5,6 @@ EAPI=8
 
 DESCRIPTION="The AI Code Editor - Cursor AppImage"
 HOMEPAGE="https://cursor.sh"
-# This URL always redirects to the latest version
 SRC_URI="https://api2.cursor.sh/updates/download/golden/linux-x64/cursor/2.0 -> cursor-${PV}.AppImage"
 
 LICENSE="proprietary"
@@ -27,16 +26,16 @@ src_unpack() {
 
 src_install() {
 	dodir /opt/cursor
-	
+
 	cp "${S}/cursor.AppImage" "${D}/opt/cursor/" || die "Failed to copy AppImage"
-	
+
 	fperms +x /opt/cursor/cursor.AppImage
-	
+
 	dosym /opt/cursor/cursor.AppImage /usr/bin/cursor
-	
+
 	# Create desktop entry
 	dodir /usr/share/applications
-	cat > "${D}/usr/share/applications/cursor.desktop" <<-EOF
+	cat > "${D}/usr/share/applications/cursor.desktop" <<-DESKTOP
 	[Desktop Entry]
 	Name=Cursor
 	Comment=The AI Code Editor
@@ -46,5 +45,5 @@ src_install() {
 	Categories=Development;IDE;TextEditor;
 	MimeType=text/plain;
 	StartupNotify=true
-	EOF
+	DESKTOP
 }
