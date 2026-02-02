@@ -30,32 +30,59 @@ jobs:
           fi
           echo "LAST_SHA=$LAST_SHA" >> $GITHUB_ENV
 
-      - name: Check for new commits in todoist-wrapper
-        id: check_commits
+      - name: Check for new releases in todoist-wrapper
+        id: check_release
         run: |
-          # Get the latest commit SHA from main branch of todoist-wrapper
-          LATEST_SHA=$(curl -s https://api.github.com/repos/conjfrnk/todoist-wrapper/commits/main | jq -r .sha)
-          echo "LATEST_SHA=$LATEST_SHA" >> $GITHUB_ENV
+          # Get the latest release tag from todoist-wrapper (not just any commit)
+          RELEASE_DATA=$(curl -s https://api.github.com/repos/conjfrnk/todoist-wrapper/releases/latest)
+          LATEST_TAG=$(echo "$RELEASE_DATA" | jq -r .tag_name)
 
-          # If no new commits since last processed and not a manual run, skip
-          if [ "$LATEST_SHA" = "$LAST_SHA" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
-            echo "No new commits since last time."
+          if [ "$LATEST_TAG" = "null" ] || [ -z "$LATEST_TAG" ]; then
+            echo "No releases found!"
+            echo "should_update=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Extract version from tag (remove 'v' prefix)
+          VERSION="${LATEST_TAG#v}"
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Latest release: $LATEST_TAG (version: $VERSION)"
+
+          # Use the release tag as the "SHA" for tracking
+          if [ "$LATEST_TAG" = "$LAST_SHA" ] && [ "${{ github.event_name }}" != "workflow_dispatch" ]; then
+            echo "No new release since last time."
             echo "should_update=false" >> $GITHUB_OUTPUT
           else
-            echo "New commit or manual run triggered."
+            echo "New release or manual run triggered."
             echo "should_update=true" >> $GITHUB_OUTPUT
+            echo "LATEST_SHA=$LATEST_TAG" >> $GITHUB_ENV
           fi
 
       - name: Exit if no update needed
-        if: steps.check_commits.outputs.should_update == 'false'
+        if: steps.check_release.outputs.should_update == 'false'
         run: exit 0
 
-      - name: Fetch version from todoist-wrapper package.json
-        id: get_version
+      - name: Verify release assets exist
+        id: verify_assets
         run: |
-          curl -sL https://raw.githubusercontent.com/conjfrnk/todoist-wrapper/main/package.json -o package.json
-          VERSION=$(jq -r .version package.json)
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION=$VERSION
+          DIST_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v${VERSION}/todoist-wrapper-linux-x64.zip"
+
+          # Check if the release asset exists before proceeding
+          HTTP_STATUS=$(curl -sI -o /dev/null -w "%{http_code}" "$DIST_URI")
+          if [ "$HTTP_STATUS" != "200" ] && [ "$HTTP_STATUS" != "302" ]; then
+            echo "Release asset not found (HTTP $HTTP_STATUS). The release may still be building."
+            echo "assets_available=false" >> $GITHUB_OUTPUT
+          else
+            echo "Release assets available."
+            echo "assets_available=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Exit if assets not available
+        if: steps.verify_assets.outputs.assets_available == 'false'
+        run: |
+          echo "Skipping update - release assets not yet available. Will retry on next run."
+          exit 0
 
       - name: Create new ebuild
         id: create_ebuild
@@ -82,7 +109,6 @@ jobs:
         run: exit 0
 
       - name: Download Distfile
-        id: download_distfile
         run: |
           VERSION=$VERSION
           DIST_URI="https://github.com/conjfrnk/todoist-wrapper/releases/download/v${VERSION}/todoist-wrapper-linux-x64.zip"
