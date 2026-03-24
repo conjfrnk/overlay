@@ -30,8 +30,8 @@ QA_PRESTRIPPED="
 
 src_unpack() {
 	unpack ${A}
-	# The zip contains dist/todoist-wrapper-linux-x64/
-	mv "${WORKDIR}/dist/todoist-wrapper-linux-x64" "${S}" || die
+	# The zip contains dist-package/todoist-wrapper-linux-x64/
+	mv "${WORKDIR}/dist-package/todoist-wrapper-linux-x64" "${S}" || die
 }
 
 src_install() {
